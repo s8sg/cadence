@@ -25,7 +25,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/uber/cadence/common/persistence/persistence-tests"
+	persistencetests "github.com/uber/cadence/common/persistence/persistence-tests"
 
 	"github.com/pborman/uuid"
 	"github.com/sirupsen/logrus"

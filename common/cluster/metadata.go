@@ -55,6 +55,9 @@ type (
 
 		// ArchivalConfig returns the archival config of the cluster
 		ArchivalConfig() *ArchivalConfig
+
+		// TODO remove after DC migration is over
+		IsClusterDisabled(cluster string) bool
 	}
 
 	metadataImpl struct {
@@ -76,11 +79,12 @@ type (
 		initialFailoverVersionClusters map[int64]string
 		// clusterToAddress contains the cluster name to corresponding frontend client
 		clusterToAddress map[string]config.Address
-
 		// archivalStatus is cluster's archival status
 		archivalStatus dynamicconfig.StringPropertyFn
 		// defaultBucket is the default archival bucket name used for this cluster
 		defaultBucket string
+		// TODO remove after DC migration is over
+		clustersDisabled map[string]struct{}
 	}
 )
 
@@ -96,6 +100,7 @@ func NewMetadata(
 	clusterToAddress map[string]config.Address,
 	archivalStatus dynamicconfig.StringPropertyFn,
 	defaultBucket string,
+	clustersDisabled map[string]struct{},
 ) Metadata {
 
 	if len(clusterInitialFailoverVersions) == 0 {
@@ -158,6 +163,7 @@ func NewMetadata(
 		clusterToAddress:               clusterToAddress,
 		archivalStatus:                 archivalStatus,
 		defaultBucket:                  defaultBucket,
+		clustersDisabled:               clustersDisabled,
 	}
 }
 
@@ -243,4 +249,10 @@ func (metadata *metadataImpl) ArchivalConfig() (retCfg *ArchivalConfig) {
 		metadata.metricsClient.IncCounter(metrics.ClusterMetadataArchivalConfigScope, metrics.ArchivalConfigFailures)
 	}
 	return NewArchivalConfig(status, metadata.defaultBucket)
+}
+
+// IsClusterDisabled return whether cluster is disabled
+func (metadata *metadataImpl) IsClusterDisabled(cluster string) bool {
+	_, ok := metadata.clustersDisabled[cluster]
+	return ok
 }

@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"fmt"
+
 	"github.com/uber/cadence/common"
 	"github.com/uber/cadence/common/metrics"
 	persistencefactory "github.com/uber/cadence/common/persistence/persistence-factory"
@@ -36,6 +37,8 @@ import (
 type Config struct {
 	NumberOfShards int
 
+	// TODO remove after DC migration is over
+	EnableDCMigration               dynamicconfig.BoolPropertyFn
 	RPS                             dynamicconfig.IntPropertyFn
 	MaxIDLengthLimit                dynamicconfig.IntPropertyFn
 	PersistenceMaxQPS               dynamicconfig.IntPropertyFn
@@ -143,7 +146,9 @@ type Config struct {
 // NewConfig returns new service config with default values
 func NewConfig(dc *dynamicconfig.Collection, numberOfShards int, enableVisibilityToKafka bool) *Config {
 	return &Config{
-		NumberOfShards:                                        numberOfShards,
+		NumberOfShards: numberOfShards,
+		// TODO remove after DC migration is over
+		EnableDCMigration:                                     dc.GetBoolProperty(dynamicconfig.EnableDCMigration, false),
 		RPS:                                                   dc.GetIntProperty(dynamicconfig.HistoryRPS, 3000),
 		MaxIDLengthLimit:                                      dc.GetIntProperty(dynamicconfig.MaxIDLengthLimit, 1000),
 		PersistenceMaxQPS:                                     dc.GetIntProperty(dynamicconfig.HistoryPersistenceMaxQPS, 9000),

@@ -229,11 +229,13 @@ func (s *timerQueueStandbyProcessorSuite) TestProcessExpiredUserTimer_Pending() 
 	s.Equal(ErrTaskRetry, err)
 
 	s.mockShard.SetCurrentTime(s.clusterName, time.Now().Add(3*s.mockShard.GetConfig().StandbyClusterDelay()))
-	s.mockHistoryRereplicator.On("SendMultiWorkflowHistory",
-		timerTask.DomainID, timerTask.WorkflowID,
-		timerTask.RunID, nextEventID,
-		timerTask.RunID, common.EndEventID,
-	).Return(nil).Once()
+	if !s.mockShard.GetConfig().EnableDCMigration() {
+		s.mockHistoryRereplicator.On("SendMultiWorkflowHistory",
+			timerTask.DomainID, timerTask.WorkflowID,
+			timerTask.RunID, nextEventID,
+			timerTask.RunID, common.EndEventID,
+		).Return(nil).Once()
+	}
 	_, err = s.timerQueueStandbyProcessor.process(timerTask, true)
 	s.Equal(ErrTaskDiscarded, err)
 }
@@ -417,11 +419,13 @@ func (s *timerQueueStandbyProcessorSuite) TestProcessActivityTimeout_Pending() {
 	s.Equal(ErrTaskRetry, err)
 
 	s.mockShard.SetCurrentTime(s.clusterName, time.Now().Add(3*s.mockShard.GetConfig().StandbyClusterDelay()))
-	s.mockHistoryRereplicator.On("SendMultiWorkflowHistory",
-		timerTask.DomainID, timerTask.WorkflowID,
-		timerTask.RunID, nextEventID,
-		timerTask.RunID, common.EndEventID,
-	).Return(nil).Once()
+	if !s.mockShard.GetConfig().EnableDCMigration() {
+		s.mockHistoryRereplicator.On("SendMultiWorkflowHistory",
+			timerTask.DomainID, timerTask.WorkflowID,
+			timerTask.RunID, nextEventID,
+			timerTask.RunID, common.EndEventID,
+		).Return(nil).Once()
+	}
 	_, err = s.timerQueueStandbyProcessor.process(timerTask, true)
 	s.Equal(ErrTaskDiscarded, err)
 }
@@ -654,11 +658,13 @@ func (s *timerQueueStandbyProcessorSuite) TestProcessDecisionTimeout_Pending() {
 	s.Equal(ErrTaskRetry, err)
 
 	s.mockShard.SetCurrentTime(s.clusterName, time.Now().Add(3*s.mockShard.GetConfig().StandbyClusterDelay()))
-	s.mockHistoryRereplicator.On("SendMultiWorkflowHistory",
-		timerTask.DomainID, timerTask.WorkflowID,
-		timerTask.RunID, nextEventID,
-		timerTask.RunID, common.EndEventID,
-	).Return(nil).Once()
+	if !s.mockShard.GetConfig().EnableDCMigration() {
+		s.mockHistoryRereplicator.On("SendMultiWorkflowHistory",
+			timerTask.DomainID, timerTask.WorkflowID,
+			timerTask.RunID, nextEventID,
+			timerTask.RunID, common.EndEventID,
+		).Return(nil).Once()
+	}
 	_, err = s.timerQueueStandbyProcessor.process(timerTask, true)
 	s.Equal(ErrTaskDiscarded, err)
 }
@@ -755,11 +761,13 @@ func (s *timerQueueStandbyProcessorSuite) TestProcessWorkflowBackoffTimer_Pendin
 	s.Equal(ErrTaskRetry, err)
 
 	s.mockShard.SetCurrentTime(s.clusterName, time.Now().Add(3*s.mockShard.GetConfig().StandbyClusterDelay()))
-	s.mockHistoryRereplicator.On("SendMultiWorkflowHistory",
-		timerTask.DomainID, timerTask.WorkflowID,
-		timerTask.RunID, nextEventID,
-		timerTask.RunID, common.EndEventID,
-	).Return(nil).Once()
+	if !s.mockShard.GetConfig().EnableDCMigration() {
+		s.mockHistoryRereplicator.On("SendMultiWorkflowHistory",
+			timerTask.DomainID, timerTask.WorkflowID,
+			timerTask.RunID, nextEventID,
+			timerTask.RunID, common.EndEventID,
+		).Return(nil).Once()
+	}
 	_, err = s.timerQueueStandbyProcessor.process(timerTask, true)
 	s.Equal(ErrTaskDiscarded, err)
 }
@@ -857,11 +865,13 @@ func (s *timerQueueStandbyProcessorSuite) TestProcessWorkflowTimeout_Pending() {
 	s.Equal(ErrTaskRetry, err)
 
 	s.mockShard.SetCurrentTime(s.clusterName, time.Now().Add(3*s.mockShard.GetConfig().StandbyClusterDelay()))
-	s.mockHistoryRereplicator.On("SendMultiWorkflowHistory",
-		timerTask.DomainID, timerTask.WorkflowID,
-		timerTask.RunID, nextEventID,
-		timerTask.RunID, common.EndEventID,
-	).Return(nil).Once()
+	if !s.mockShard.GetConfig().EnableDCMigration() {
+		s.mockHistoryRereplicator.On("SendMultiWorkflowHistory",
+			timerTask.DomainID, timerTask.WorkflowID,
+			timerTask.RunID, nextEventID,
+			timerTask.RunID, common.EndEventID,
+		).Return(nil).Once()
+	}
 	_, err = s.timerQueueStandbyProcessor.process(timerTask, true)
 	s.Equal(ErrTaskDiscarded, err)
 }

@@ -121,8 +121,12 @@ func (s *server) startService() common.Daemon {
 	archivalStatus := dc.GetStringProperty(dynamicconfig.ArchivalStatus, s.cfg.Archival.Status)
 
 	params.DCRedirectionPolicy = s.cfg.DCRedirectionPolicy
-
 	params.MetricsClient = metrics.NewClient(params.MetricScope, service.GetMetricsServiceIdx(params.Name, params.Logger))
+
+	clustersDisabled := map[string]struct{}{}
+	for _, clusterName := range s.cfg.ClustersInfo.ClustersDisabled {
+		clustersDisabled[clusterName] = struct{}{}
+	}
 	params.ClusterMetadata = cluster.NewMetadata(
 		params.Logger,
 		params.MetricsClient,
@@ -134,8 +138,10 @@ func (s *server) startService() common.Daemon {
 		s.cfg.ClustersInfo.ClusterAddress,
 		archivalStatus,
 		s.cfg.Archival.Filestore.DefaultBucket.Name,
+		clustersDisabled,
 	)
 	params.DispatcherProvider = client.NewIPYarpcDispatcherProvider()
+
 	params.ESConfig = &s.cfg.ElasticSearch
 	params.ESConfig.Enable = dc.GetBoolProperty(dynamicconfig.EnableVisibilityToKafka, params.ESConfig.Enable)() // force override with dynamic config
 	if params.ClusterMetadata.IsGlobalDomainEnabled() {

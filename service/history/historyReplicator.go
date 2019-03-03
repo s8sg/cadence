@@ -57,6 +57,7 @@ type (
 		domainCache       cache.DomainCache
 		historySerializer persistence.HistorySerializer
 		historyMgr        persistence.HistoryManager
+		historyV2Mgr      persistence.HistoryV2Manager
 		clusterMetadata   cluster.Metadata
 		metricsClient     metrics.Client
 		logger            bark.Logger
@@ -114,6 +115,7 @@ func newHistoryReplicator(shard ShardContext, historyEngine *historyEngineImpl, 
 		domainCache:       domainCache,
 		historySerializer: persistence.NewHistorySerializer(),
 		historyMgr:        historyMgr,
+		historyV2Mgr:      historyV2Mgr,
 		clusterMetadata:   shard.GetService().GetClusterMetadata(),
 		metricsClient:     shard.GetMetricsClient(),
 		logger:            logger.WithField(logging.TagWorkflowComponent, logging.TagValueHistoryReplicatorComponent),
@@ -296,11 +298,10 @@ func (r *historyReplicator) ApplyRawEvents(ctx context.Context, requestIn *h.Rep
 		requestOut.NewRunHistory = &shared.History{Events: newRunEvents}
 		requestOut.NewRunEventStoreVersion = requestIn.NewRunEventStoreVersion
 	}
-
-	return r.ApplyEvents(ctx, requestOut)
+	return r.ApplyEvents(ctx, requestOut, true)
 }
 
-func (r *historyReplicator) ApplyEvents(ctx context.Context, request *h.ReplicateEventsRequest) (retError error) {
+func (r *historyReplicator) ApplyEvents(ctx context.Context, request *h.ReplicateEventsRequest, inRetry bool) (retError error) {
 	logger := r.logger.WithFields(bark.Fields{
 		logging.TagWorkflowExecutionID: request.WorkflowExecution.GetWorkflowId(),
 		logging.TagWorkflowRunID:       request.WorkflowExecution.GetRunId(),
@@ -391,7 +392,7 @@ func (r *historyReplicator) ApplyEvents(ctx context.Context, request *h.Replicat
 			logError(logger, "Fail to pre-flush buffer.", err)
 			return err
 		}
-		msBuilder, err = r.ApplyOtherEventsVersionChecking(ctx, context, msBuilder, request, logger)
+		msBuilder, err = r.ApplyOtherEventsVersionChecking(ctx, context, msBuilder, request, logger, inRetry)
 		if err != nil || msBuilder == nil {
 			return err
 		}
@@ -474,7 +475,7 @@ func (r *historyReplicator) ApplyOtherEventsMissingMutableState(ctx context.Cont
 }
 
 func (r *historyReplicator) ApplyOtherEventsVersionChecking(ctx context.Context, context workflowExecutionContext,
-	msBuilder mutableState, request *h.ReplicateEventsRequest, logger bark.Logger) (mutableState, error) {
+	msBuilder mutableState, request *h.ReplicateEventsRequest, logger bark.Logger, inRetry bool) (mutableState, error) {
 	var err error
 	// check if to buffer / drop / conflict resolution
 	incomingVersion := request.GetVersion()
@@ -513,12 +514,49 @@ func (r *historyReplicator) ApplyOtherEventsVersionChecking(ctx context.Context,
 	// if not applied, the replication info will not be up to date.
 
 	if previousActiveCluster != r.clusterMetadata.GetCurrentClusterName() {
+		doDCMigration, err := canDoDCMigration(r.clusterMetadata, r.domainCache, context.getDomainID())
+		if err != nil {
+			return nil, err
+		}
 		// this cluster is previously NOT active, this also means there is no buffered event
 		if r.clusterMetadata.IsVersionFromSameCluster(incomingVersion, rState.LastWriteVersion) {
 			// it is possible that a workflow will not generate any event in few rounds of failover
 			// meaning that the incoming version > last write version and
 			// (incoming version - last write version) % failover version increment == 0
-			return msBuilder, nil
+
+			// TODO remove the if check after DC migration is over, keep the return statement
+			if !doDCMigration {
+				return msBuilder, nil
+			}
+
+			// TODO remove after DC migration is over
+			if request.GetForceBufferEvents() {
+				return msBuilder, nil
+			}
+		}
+
+		// TODO remove after DC migration is over
+		if r.shard.GetConfig().EnableDCMigration() {
+			if doDCMigration && inRetry {
+				return msBuilder, nil
+			}
+
+			if doDCMigration {
+				dcMigrationHandler := newDCMigrationHandler(r.historyMgr, r.historyV2Mgr)
+				expectedLastEventID, err := dcMigrationHandler.getLastMatchEventID(
+					ctx, context, msBuilder, request, logger,
+				)
+				if err != nil {
+					return nil, err
+				}
+				if expectedLastEventID < msBuilder.GetReplicationState().LastWriteEventID {
+					lastEvent := request.History.Events[len(request.History.Events)-1]
+					logger.Infof("Resetting to %v - %v\n.", expectedLastEventID, msBuilder.GetReplicationState().LastWriteEventID)
+					return r.resetMutableState(ctx, context, msBuilder, expectedLastEventID,
+						lastEvent.GetVersion(), lastEvent.GetTimestamp(), logger)
+				}
+				return msBuilder, nil
+			}
 		}
 
 		err = ErrMoreThan2DC
@@ -532,7 +570,10 @@ func (r *historyReplicator) ApplyOtherEventsVersionChecking(ctx context.Context,
 	if !ok || rState.LastWriteVersion > ri.GetVersion() {
 		logger.Info("Encounter case where events are rejected by remote.")
 		// use the last valid version && event ID to do a reset
-		lastValidVersion, lastValidEventID := r.getLatestCheckpoint(replicationInfo, rState.LastReplicationInfo)
+		lastValidVersion, lastValidEventID := r.getLatestCheckpoint(
+			replicationInfo,
+			rState.LastReplicationInfo,
+		)
 
 		if lastValidVersion == common.EmptyVersion {
 			err = ErrImpossibleLocalRemoteMissingReplicationInfo
@@ -604,7 +645,7 @@ func (r *historyReplicator) ApplyOtherEvents(ctx context.Context, context workfl
 		logger.Debugf("Buffer out of order replication task.  NextEvent: %v, FirstEvent: %v",
 			msBuilder.GetNextEventID(), firstEventID)
 
-		if !request.GetForceBufferEvents() {
+		if !request.GetForceBufferEvents() || r.shard.GetConfig().EnableDCMigration() {
 			return newRetryTaskErrorWithHint(
 				ErrRetryBufferEventsMsg,
 				context.getDomainID(),

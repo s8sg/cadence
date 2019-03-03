@@ -21,6 +21,7 @@
 package history
 
 import (
+	goctx "context"
 	"fmt"
 	"time"
 
@@ -520,7 +521,46 @@ func (t *timerQueueStandbyProcessorImpl) fetchHistoryAndVerifyOnce(timerTask *pe
 	return nil
 }
 
-func (t *timerQueueStandbyProcessorImpl) fetchHistoryFromRemote(timerTask *persistence.TimerTaskInfo, nextEventID int64) error {
+func (t *timerQueueStandbyProcessorImpl) fetchHistoryFromRemote(timerTask *persistence.TimerTaskInfo, nextEventID int64) (retError error) {
+
+	if t.shard.GetConfig().EnableDCMigration() {
+		doDCMigration, err := canDoDCMigration(t.shard.GetService().GetClusterMetadata(), t.shard.GetDomainCache(), timerTask.DomainID)
+		if err != nil {
+			return err
+		}
+		if !doDCMigration {
+			return nil
+		}
+		domainID, execution := t.timerQueueProcessorBase.getDomainIDAndWorkflowExecution(timerTask)
+		context, release, err := t.cache.getOrCreateWorkflowExecution(domainID, execution)
+		if err != nil {
+			return err
+		}
+		defer func() { release(retError) }()
+		msBuilder, err := loadMutableStateForTimerTask(context, timerTask, t.metricsClient, t.logger)
+		if err != nil {
+			return err
+		} else if msBuilder == nil {
+			return nil
+		}
+		dcMigrationHandler := newDCMigrationHandler(t.shard.GetHistoryManager(), t.shard.GetHistoryV2Manager())
+		firstBatchLastEventID, err := dcMigrationHandler.getFirstBatchLastEventID(domainID, &execution, msBuilder.GetEventStoreVersion(), msBuilder.GetCurrentBranch())
+		if err != nil {
+			return err
+		}
+		historyReplicator := newHistoryReplicator(t.shard, t.historyService, t.cache, t.shard.GetDomainCache(),
+			t.shard.GetHistoryManager(), t.shard.GetHistoryV2Manager(), t.logger)
+
+		ctx, cancel := goctx.WithTimeout(goctx.Background(), 30*time.Second)
+		defer cancel()
+		_, err = historyReplicator.resetMutableState(ctx, context, msBuilder, firstBatchLastEventID,
+			msBuilder.GetLastWriteVersion(), time.Now().UnixNano(), t.logger)
+		if err != nil {
+			return err
+		}
+		release(nil)
+		nextEventID = firstBatchLastEventID + 1
+	}
 
 	t.metricsClient.IncCounter(metrics.HistoryRereplicationByTimerTaskScope, metrics.CadenceClientRequests)
 	stopwatch := t.metricsClient.StartTimer(metrics.HistoryRereplicationByTimerTaskScope, metrics.CadenceClientLatency)
